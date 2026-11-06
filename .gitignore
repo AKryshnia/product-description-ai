@@ -1,0 +1,26 @@
+# Секреты и локальная конфигурация
+.env
+.env.*
+!.env.example
+
+# Сертификаты скачиваются локально из официального источника (см. README)
+certs/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Инструменты
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Редакторы / ОС
+.idea/
+.vscode/
+.DS_Store
