@@ -147,7 +147,8 @@ _LATIN_WORD = re.compile(r"(?<![\w])[A-Za-z]{3,}(?![\w])")
 
 @dataclass(frozen=True)
 class Facts:
-    """Всё, что можно утверждать на основании входных данных."""
+    """Сведения входных данных, с которыми сверяется текст. Они позволяют найти расхождение; их
+    совпадение с текстом не доказывает, что смысл сохранён."""
 
     numbers: frozenset[str]  # все числа (нормализованные)
     fractional: frozenset[str]  # числа, записанные во входе с десятичным разделителем
@@ -170,6 +171,22 @@ def _split_negation(word: str) -> tuple[str, bool]:
     return word[:5], False
 
 
+# «не» перед словом: частица («не поддерживается») или приставка («неагрессивных»). «Не только» и
+# «не превышает» — обороты (граница значения проверяется в app/binding.py), а не отрицание слова.
+_POLAR_WORD = re.compile(
+    r"(?<![а-яе])(?P<particle>не[ \t]+(?!(?:только|превыша\w*)\b))?(?P<word>[а-яе]{6,})"
+)
+
+
+def _polar_words(text: str) -> list[tuple[str, str, bool]]:
+    """(слово как в тексте, основа, с отрицанием ли) для слов от 6 букв."""
+    found = []
+    for m in _POLAR_WORD.finditer(fold(text)):
+        stem, prefixed = _split_negation(m.group("word"))
+        found.append((text[m.start() : m.end()], stem, prefixed or bool(m.group("particle"))))
+    return found
+
+
 def build_facts(product: ProductInput) -> Facts:
     description = drop_instruction_sentences(product.description or "")
     trusted = [product.name, product.manufacturer or ""]
@@ -189,8 +206,7 @@ def build_facts(product: ProductInput) -> Facts:
     units |= standalone_units(corpus)
     folded = fold(corpus)
     polar: dict[str, set[bool]] = {}
-    for w in re.findall(r"[а-яе]{6,}", folded):
-        stem, negated = _split_negation(w)
+    for _, stem, negated in _polar_words(corpus):
         polar.setdefault(stem, set()).add(negated)
     places = build_places(product, description)
     return Facts(
@@ -389,12 +405,11 @@ def _check_claims(text: str, block: str, facts: Facts) -> list[Issue]:
 
 
 def _check_polarity(text: str, block: str, facts: Facts) -> list[Issue]:
-    """«Неагрессивных» во входе не подтверждает «агрессивных»: слово с противоположным смыслом
-    (с «не-» или без него) не должно появляться, если в источнике оно только в другой форме."""
+    """«Неагрессивных» или «не поддерживается» во входе не подтверждают «агрессивных» и
+    «поддерживается»: слово с противоположным смыслом (с отрицанием «не» или без него) не должно
+    появляться, если в источнике оно только в другой форме."""
     found, seen = [], set()
-    for m in re.finditer(r"[А-Яа-яЁё]{6,}", text):
-        word = fold(m.group())
-        stem, negated = _split_negation(word)
+    for shown, stem, negated in _polar_words(text):
         known = facts.polar.get(stem)
         if known and negated not in known and stem not in seen:
             seen.add(stem)
@@ -403,10 +418,11 @@ def _check_polarity(text: str, block: str, facts: Facts) -> list[Issue]:
                     IssueCode.UNSUPPORTED_CLAIM,
                     Severity.REVIEW,
                     block,
-                    f"Слово «{m.group()}» во входных данных встречается только с противоположным "
-                    f"смыслом ({'без' if negated else 'с'} отрицания «не-»): возможна замена "
-                    "свойства на противоположное. Проверьте вручную.",
-                    m.group(),
+                    f"Слово «{shown}» во входных данных встречается только "
+                    f"{'без отрицания «не»' if negated else 'с отрицанием «не»'}, то есть с "
+                    "противоположным смыслом: возможна замена свойства на противоположное. "
+                    "Проверьте вручную.",
+                    shown,
                 )
             )
     return found
@@ -482,14 +498,21 @@ def _length_message(n: int) -> str:
     )
 
 
-# заглушки вместо содержания: «—», «данных нет», «не указано»
-_PLACEHOLDER = re.compile(r"(?:данных нет|нет данных|не указан\w*|не определен\w*|н/д|n/a)", re.I)
+# Заглушки вместо содержания: «нет сведений», «данных нет», «уточняется», «не применимо», «N/A».
+# Значение целиком состоит из заглушки (регистр, пробелы и пунктуация не важны); предложение со
+# смыслом, где есть «нет» или «не» («прибор не требует обслуживания»), заглушкой не является.
+_SUBJECT = r"(?:сведени\w+|данн\w+|информаци\w+)"
+_ABSENT = (
+    r"(?:нет|отсутствуе?т|неизвестн\w*|неприменим\w*|уточня\w+|уточнить|н/д|n/a|tbd|none"
+    r"|не\s+(?:указан\w*|определен\w*|применим\w*|известн\w*|заданн?\w*)"
+    r"|требу\w+\s+уточнени\w+)"
+)
+_STUB = re.compile(rf"{_ABSENT}(?:\s+{_SUBJECT})?|{_SUBJECT}\s+{_ABSENT}")
 
 
 def _meaningful(item: str) -> bool:
-    return bool(re.search(r"[A-Za-zА-Яа-яЁё]{3,}", item)) and not _PLACEHOLDER.fullmatch(
-        item.strip(" .—–-")
-    )
+    words = " ".join(fold(item).strip(" \t\n.,;:!?…—–-«»\"'()[]").split())
+    return bool(re.search(r"[a-zа-я]{3,}", words)) and not _STUB.fullmatch(words)
 
 
 def _check_commercial(d: Draft) -> list[Issue]:
@@ -497,7 +520,7 @@ def _check_commercial(d: Draft) -> list[Issue]:
     c = d.commercial
     empty = [
         label
-        for label, items in (("audience (кому подходит)", c.audience), ("tasks (задачи)", c.tasks))
+        for label, items in (("audience (аудитория)", c.audience), ("tasks (задачи)", c.tasks))
         if not any(_meaningful(i) for i in items)
     ]
     if not empty:
@@ -507,8 +530,8 @@ def _check_commercial(d: Draft) -> list[Issue]:
             IssueCode.COMMERCIAL_EMPTY,
             Severity.ERROR,
             "commercial",
-            "В коммерческом блоке нет содержательных аудитории и задач: пусты "
-            f"{', '.join(empty)}. Заполните их по назначению прибора из данных "
+            "В обязательных полях коммерческого блока нет содержания (пусто или заглушка вроде "
+            f"«нет сведений»): {', '.join(empty)}. Заполните их по назначению прибора из данных "
             "(например: «Специалисты, которым требуется измерение <величина из данных>»); "
             "не выдумывай отрасли, категории покупателей и задачи, которых нет во входных "
             "данных. «scenarios» может остаться пустым.",

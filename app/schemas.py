@@ -127,6 +127,8 @@ class IssueCode(StrEnum):
     CONDITION_DROPPED = "condition_dropped"
     VALUE_CONTEXT_MISMATCH = "value_context_mismatch"
     NARRATIVE_ONLY_VALUE = "narrative_only_value"
+    COMBINATION_UNCONFIRMED = "combination_unconfirmed"
+    BOUND_MISMATCH = "bound_mismatch"
     COMMERCIAL_EMPTY = "commercial_empty"
     TEXT_GLITCH = "text_glitch"
     UNSUPPORTED_CLAIM = "unsupported_claim"

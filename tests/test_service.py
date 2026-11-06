@@ -226,6 +226,104 @@ def test_empty_scenarios_are_allowed_when_none_are_confirmed():
     assert card.status is CardStatus.OK and card.commercial.scenarios == []
 
 
+# заглушки вместо содержания: регистр, пробелы и пунктуация значения не имеют
+STUBS = [
+    "нет сведений",
+    "Нет сведений.",
+    "  НЕТ \t СВЕДЕНИЙ  ",
+    "сведений нет",
+    "нет информации",
+    "нет данных",
+    "данных нет",
+    "Данные не указаны",
+    "уточняется",
+    "Уточняется...",
+    "требуется уточнение",
+    "не применимо",
+    "неприменимо",
+    "не определено",
+    "не указано",
+    "«не указано»",
+    "(нет данных)",
+    "информация отсутствует",
+    "неизвестно",
+    "н/д",
+    "N/A",
+    "TBD",
+]
+
+# содержательные предложения, в которых есть «нет» или «не»: заглушкой они не являются
+MEANINGFUL = [
+    "Прибор не требует обслуживания",
+    "Специалисты, которым не нужна сложная настройка",
+    "Нет необходимости в частой калибровке",
+    "Не применимо в бытовых условиях",
+    "Организации, не имеющие собственной поверочной лаборатории",
+]
+
+
+def commercial_issues(**commercial):
+    from app.schemas import Draft
+    from app.validator import build_facts, validate_draft
+
+    content = {"audience": ["Метрологи"], "tasks": ["Контроль давления"], "scenarios": []}
+    draft = Draft.model_validate_json(draft_json(commercial={**content, **commercial}))
+    found = validate_draft(draft, build_facts(product()))
+    return [i for i in found if i.code is IssueCode.COMMERCIAL_EMPTY]
+
+
+@pytest.mark.parametrize("stub", STUBS)
+def test_a_stub_is_not_content_in_either_required_field(stub):
+    for fields, named in (
+        ({"audience": [stub]}, ["audience"]),
+        ({"tasks": [stub]}, ["tasks"]),
+        ({"audience": [stub], "tasks": [stub]}, ["audience", "tasks"]),
+    ):
+        (issue,) = commercial_issues(**fields)
+        assert issue.severity is Severity.ERROR and issue.field == "commercial"
+        assert all(word in issue.message for word in named)
+
+
+def test_only_the_field_with_a_stub_is_named_in_the_reason():
+    (issue,) = commercial_issues(audience=["нет сведений"])
+    assert "audience" in issue.message and "tasks" not in issue.message
+    (issue,) = commercial_issues(tasks=["уточняется"])
+    assert "tasks" in issue.message and "audience" not in issue.message
+
+
+@pytest.mark.parametrize("sentence", MEANINGFUL)
+def test_a_meaningful_sentence_with_a_negation_is_content(sentence):
+    assert commercial_issues(audience=[sentence], tasks=[sentence]) == []
+
+
+def test_content_next_to_a_stub_makes_the_field_filled_and_scenarios_may_be_empty():
+    assert commercial_issues(audience=["нет сведений", "Метрологи"], scenarios=[]) == []
+    assert commercial_issues(tasks=["Контроль давления", "не применимо"]) == []
+
+
+@pytest.mark.parametrize("stub", ["нет сведений", "уточняется", "не применимо"])
+def test_stub_in_both_fields_is_repaired_with_the_single_extra_call(stub):
+    stubbed = {"audience": [stub], "tasks": [stub], "scenarios": []}
+    llm = FakeLLM([draft_json(commercial=stubbed), draft_json()])
+    card = generate_card(product(), llm)
+    assert card.status is CardStatus.OK and card.generation.repaired
+    assert len(llm.calls) == card.generation.llm_calls == 2
+
+
+@pytest.mark.parametrize("stubbed", ["audience", "tasks", "both"])
+def test_unrepaired_stub_gives_partial_with_the_reason_and_no_invented_content(stubbed):
+    fields = ("audience", "tasks") if stubbed == "both" else (stubbed,)
+    commercial = {"audience": ["Метрологи"], "tasks": ["Контроль давления"], "scenarios": []}
+    commercial.update({f: ["нет сведений"] for f in fields})
+    llm = FakeLLM([draft_json(commercial=commercial)])  # корректировка возвращает то же
+    card = generate_card(product(), llm)
+    assert card.status is CardStatus.PARTIAL and len(llm.calls) == card.generation.llm_calls == 2
+    (issue,) = [w for w in card.warnings if w.code is IssueCode.COMMERCIAL_EMPTY]
+    assert issue.severity is Severity.ERROR
+    for f in fields:  # программа ничего не добавляет вместо отсутствующих сведений
+        assert card.commercial.model_dump()[f] == ["нет сведений"]
+
+
 # ---------------------------------------------------------------- счётчик обращений к модели
 
 
