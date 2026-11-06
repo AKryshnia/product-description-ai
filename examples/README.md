@@ -21,5 +21,7 @@
 
 `outputs/gigachat-live/` — **реальные** ответы GigaChat (дата, модель и метрики прогона — в
 `run-summary.json`), получены командой `python scripts/live_check.py`.
-`outputs/gigachat-live-catalog/` — реальные ответы GigaChat по данным реального каталога.
+`outputs/gigachat-live-catalog/` — реальные ответы GigaChat по данным реального каталога (прогон
+после исправления привязки значений; статус — результат автоматической проверки, ручная сверка —
+в [`SOURCES.md`](SOURCES.md)).
 Результаты мокированных тестов здесь не хранятся: они не являются ответами GigaChat.
