@@ -17,6 +17,7 @@ from app.llm import (
     Capabilities,
     LLMAPIError,
     LLMAuthError,
+    LLMError,
     LLMInvalidResponse,
     LLMNotConfigured,
     LLMRateLimited,
@@ -53,9 +54,30 @@ def _retry_after(exc: gx.ResponseError) -> int | None:
         return None
 
 
-def _log(exc: Exception) -> None:
-    # Только тип и код: текст исключения SDK может содержать тело ответа.
-    log.warning("GigaChat: %s (status=%s)", type(exc).__name__, getattr(exc, "status_code", None))
+def _log(exc: Exception, stage: str = "chat") -> None:
+    # Только этап, тип и код: текст исключения SDK может содержать тело ответа и токен.
+    log.warning(
+        "GigaChat: %s (stage=%s, status=%s)",
+        type(exc).__name__,
+        stage,
+        getattr(exc, "status_code", None),
+    )
+
+
+def _response_error(e: gx.ResponseError) -> LLMError:
+    """HTTP-ошибка SDK -> единая ошибка. На этапе OAuth различаем отказ в доступе и сбой сервера:
+    неверный ключ реальный API отклоняет кодом 400 (не 401), а 5xx ключа не касается."""
+    status = e.status_code
+    if "/oauth" not in str(e.url):
+        return LLMAPIError(f"GigaChat вернул ошибку (HTTP {status}).")
+    if status in (400, 401, 403):
+        return LLMAuthError(_AUTH_HINT)
+    if status >= 500:
+        return LLMUnavailable(
+            f"Сервер авторизации GigaChat недоступен (HTTP {status}). "
+            "Повторите запрос позже: на ключ это не указывает."
+        )
+    return LLMAPIError(f"Сервер авторизации GigaChat вернул ошибку (HTTP {status}).")
 
 
 class GigaChatClient:
@@ -106,12 +128,8 @@ class GigaChatClient:
             _log(e)
             raise LLMRateLimited(retry_after=_retry_after(e)) from e
         except gx.ResponseError as e:
-            _log(e)
-            if "/oauth" in str(e.url):
-                # на этапе получения токена любая ошибка — это ключ или scope (неверный ключ
-                # реальный API отклоняет кодом 400, а не 401)
-                raise LLMAuthError(_AUTH_HINT) from e
-            raise LLMAPIError(f"GigaChat вернул ошибку (HTTP {e.status_code}).") from e
+            _log(e, "oauth" if "/oauth" in str(e.url) else "chat")
+            raise _response_error(e) from e
         except httpx.TimeoutException as e:
             _log(e)
             raise LLMTimeout("GigaChat не ответил за отведённое время.") from e
@@ -123,6 +141,13 @@ class GigaChatClient:
         except gx.GigaChatException as e:
             _log(e)
             raise LLMAPIError("GigaChat вернул ошибку.") from e
+        except (ValueError, TypeError) as e:
+            # SDK не смог разобрать HTTP-ответ (не JSON, неожиданная структура, OAuth без срока
+            # жизни токена): JSONDecodeError и pydantic.ValidationError — это ValueError. Блок
+            # `try` охватывает только вызов SDK, поэтому ошибки нашего кода не маскируются.
+            # `from None`: текст исключения pydantic содержит фрагмент ответа, в том числе токен.
+            _log(e, "response")
+            raise LLMInvalidResponse("GigaChat вернул ответ в неожиданном формате.") from None
 
         if not resp.choices:
             raise LLMInvalidResponse("GigaChat вернул ответ без вариантов генерации.")
