@@ -1,0 +1,85 @@
+{
+  "generated_at": "2026-11-06T14:16:11+00:00",
+  "provider": "gigachat",
+  "configured_model": "GigaChat-2-Pro",
+  "runs": [
+    {
+      "input": "01-manometer-dm02-from-task.json",
+      "status": "needs_review",
+      "model": "GigaChat-2-Pro:2.0.28.2",
+      "llm_calls": 2,
+      "repaired": true,
+      "prompt_tokens": 400,
+      "completion_tokens": 600,
+      "seconds": 13.3,
+      "title_length": 59,
+      "title_within_limit": true,
+      "description_length": 954,
+      "description_within_range": true,
+      "queries_count": 5,
+      "queries_within_range": true,
+      "warning_codes": [
+        "unsupported_claim"
+      ]
+    },
+    {
+      "input": "02-demo-digital-thermometer.json",
+      "status": "partial",
+      "model": "GigaChat-2-Pro:2.0.28.2",
+      "llm_calls": 2,
+      "repaired": true,
+      "prompt_tokens": 426,
+      "completion_tokens": 654,
+      "seconds": 13.7,
+      "title_length": 48,
+      "title_within_limit": true,
+      "description_length": 745,
+      "description_within_range": false,
+      "queries_count": 5,
+      "queries_within_range": true,
+      "warning_codes": [
+        "description_length",
+        "unsupported_claim"
+      ]
+    },
+    {
+      "input": "03-demo-incomplete.json",
+      "status": "partial",
+      "model": "GigaChat-2-Pro:2.0.28.2",
+      "llm_calls": 2,
+      "repaired": false,
+      "prompt_tokens": 1783,
+      "completion_tokens": 411,
+      "seconds": 8.4,
+      "title_length": 42,
+      "title_within_limit": true,
+      "description_length": 287,
+      "description_within_range": false,
+      "queries_count": 3,
+      "queries_within_range": true,
+      "warning_codes": [
+        "description_length"
+      ]
+    },
+    {
+      "input": "04-demo-prompt-injection.json",
+      "status": "partial",
+      "model": "GigaChat-2-Pro:2.0.28.2",
+      "llm_calls": 2,
+      "repaired": true,
+      "prompt_tokens": 501,
+      "completion_tokens": 587,
+      "seconds": 12.1,
+      "title_length": 54,
+      "title_within_limit": true,
+      "description_length": 650,
+      "description_within_range": false,
+      "queries_count": 5,
+      "queries_within_range": true,
+      "warning_codes": [
+        "description_length",
+        "unsupported_claim"
+      ]
+    }
+  ]
+}
