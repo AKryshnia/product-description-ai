@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-06T14:16:11+00:00",
+  "generated_at": "2026-11-06T15:17:06+00:00",
   "provider": "gigachat",
   "configured_model": "GigaChat-2-Pro",
   "runs": [
@@ -9,12 +9,12 @@
       "model": "GigaChat-2-Pro:2.0.28.2",
       "llm_calls": 2,
       "repaired": true,
-      "prompt_tokens": 400,
-      "completion_tokens": 600,
-      "seconds": 13.3,
-      "title_length": 59,
+      "prompt_tokens": 871,
+      "completion_tokens": 594,
+      "seconds": 12.4,
+      "title_length": 48,
       "title_within_limit": true,
-      "description_length": 954,
+      "description_length": 942,
       "description_within_range": true,
       "queries_count": 5,
       "queries_within_range": true,
@@ -28,18 +28,17 @@
       "model": "GigaChat-2-Pro:2.0.28.2",
       "llm_calls": 2,
       "repaired": true,
-      "prompt_tokens": 426,
-      "completion_tokens": 654,
+      "prompt_tokens": 758,
+      "completion_tokens": 671,
       "seconds": 13.7,
       "title_length": 48,
       "title_within_limit": true,
-      "description_length": 745,
+      "description_length": 795,
       "description_within_range": false,
       "queries_count": 5,
       "queries_within_range": true,
       "warning_codes": [
-        "description_length",
-        "unsupported_claim"
+        "description_length"
       ]
     },
     {
@@ -47,13 +46,13 @@
       "status": "partial",
       "model": "GigaChat-2-Pro:2.0.28.2",
       "llm_calls": 2,
-      "repaired": false,
-      "prompt_tokens": 1783,
+      "repaired": true,
+      "prompt_tokens": 628,
       "completion_tokens": 411,
-      "seconds": 8.4,
+      "seconds": 8.0,
       "title_length": 42,
       "title_within_limit": true,
-      "description_length": 287,
+      "description_length": 671,
       "description_within_range": false,
       "queries_count": 3,
       "queries_within_range": true,
@@ -67,18 +66,17 @@
       "model": "GigaChat-2-Pro:2.0.28.2",
       "llm_calls": 2,
       "repaired": true,
-      "prompt_tokens": 501,
-      "completion_tokens": 587,
-      "seconds": 12.1,
+      "prompt_tokens": 970,
+      "completion_tokens": 522,
+      "seconds": 10.0,
       "title_length": 54,
       "title_within_limit": true,
-      "description_length": 650,
+      "description_length": 546,
       "description_within_range": false,
       "queries_count": 5,
       "queries_within_range": true,
       "warning_codes": [
-        "description_length",
-        "unsupported_claim"
+        "description_length"
       ]
     }
   ]
