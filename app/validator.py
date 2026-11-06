@@ -86,7 +86,8 @@ _INDUSTRIES = (
     "производствен",
     "складск",
     "предприят",
-    "технологическ",
+    r"технологическ\w* процесс",  # фраза, а не основа: см. тест про технологическую черту
+    "мониторинг",
     "здани",
     "сооружен",
     "стандарт",
@@ -298,7 +299,7 @@ def _check_claims(text: str, block: str, facts: Facts) -> list[Issue]:
     found = []
     for stem in _CLAIM_STEMS:
         m = re.search(rf"\w*{stem}\w*", folded)
-        if m and stem not in facts.text:
+        if m and not re.search(stem, facts.text):  # stem — основа или фразовый шаблон
             found.append(
                 _issue(
                     IssueCode.UNSUPPORTED_CLAIM,

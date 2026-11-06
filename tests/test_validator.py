@@ -209,3 +209,27 @@ def test_latin_words_absent_from_the_source_are_flagged(facts):
 def test_latin_words_from_the_source_are_fine():
     src = ProductInput.model_validate({"name": "Датчик", "specs": {"интерфейс": "Modbus RTU"}})
     assert check_text("Датчик с интерфейсом Modbus RTU", "seo_title", build_facts(src)) == []
+
+
+def _catalog_facts():
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "examples/inputs/mp3-u.json"
+    return build_facts(ProductInput.model_validate(json.loads(path.read_text(encoding="utf-8"))))
+
+
+def test_a_word_in_one_context_does_not_justify_the_same_stem_in_another():
+    """Реальный случай (карточка МП3-У): «технологическая черта на шкале» есть во входе, а
+    «технологические процессы» — выдумка модели; общая основа «технологическ» их не различала."""
+    f = _catalog_facts()
+    invented = check_text("Контроль параметров технологических процессов", "commercial", f)
+    assert [i.detail for i in invented if i.code is IssueCode.UNSUPPORTED_CLAIM] == [
+        "технологических процессов"
+    ]
+    assert check_text("Технологическая черта на шкале — по заказу", "commercial", f) == []
+
+
+def test_invented_monitoring_task_is_flagged():
+    issues = check_text("Мониторинг состояния оборудования", "commercial", _catalog_facts())
+    assert IssueCode.UNSUPPORTED_CLAIM in codes(issues, Severity.REVIEW)
