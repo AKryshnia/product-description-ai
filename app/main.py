@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
 from app.llm import Capabilities, LLMClient, LLMError, LLMNotConfigured
@@ -55,6 +56,42 @@ async def lifespan(_: FastAPI):
             close()
 
 
+MAX_BODY_BYTES = 1_000_000  # 1 МБ: реальный запрос — единицы килобайт
+
+
+class BodyLimitMiddleware:
+    """Отклоняет слишком большое тело запроса, не дочитывая его (обычная и chunked-передача)."""
+
+    def __init__(self, app, max_bytes: int = MAX_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        declared = dict(scope["headers"]).get(b"content-length", b"")
+        if declared.isdigit() and int(declared) > self.max_bytes:
+            return await _too_large()(scope, receive, send)
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:  # обработчик ошибок приложения вернёт 413
+                    raise StarletteHTTPException(status_code=413)
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+
+def _too_large() -> JSONResponse:
+    code, message = _HTTP_ERRORS[413]
+    return _error(413, code, message)
+
+
 app = FastAPI(
     title="AI-помощник для подготовки товарных описаний",
     version="0.1.0",
@@ -66,10 +103,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(BodyLimitMiddleware)
+
 _ERRORS = {
     code: {"model": ErrorResponse, "description": text}
     for code, text in {
         400: "Некорректный JSON.",
+        413: "Тело запроса больше 1 МБ.",
         422: "Данные не прошли проверку типов или обязательных полей.",
         429: "Превышен лимит запросов GigaChat (см. заголовок Retry-After).",
         502: "Ошибка авторизации или API GigaChat, недоступность сети.",
@@ -84,6 +124,21 @@ def _error(status: int, code: str, message: str, details=None, headers=None) -> 
     return JSONResponse(
         status_code=status, content=body.model_dump(exclude_none=True), headers=headers
     )
+
+
+_HTTP_ERRORS = {
+    404: ("not_found", "Маршрут не найден."),
+    405: ("method_not_allowed", "Метод не поддерживается для этого маршрута."),
+    413: ("payload_too_large", "Размер запроса превышает допустимый (1 МБ)."),
+}
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+    code, message = _HTTP_ERRORS.get(
+        exc.status_code, ("http_error", "Запрос не может быть обработан.")
+    )
+    return _error(exc.status_code, code, message, headers=getattr(exc, "headers", None))
 
 
 @app.exception_handler(LLMError)

@@ -172,3 +172,26 @@ def test_health_and_openapi_are_available(api):
     assert spec["components"]["schemas"]["ProductInput"]["examples"][0]["name"].startswith(
         "Манометр"
     )
+
+
+def test_oversized_body_is_rejected_with_413_before_any_processing(api):
+    llm = FakeLLM()
+    big = json.dumps({"name": "Манометр", "description": "х" * 1_100_000})
+    r = api(llm).post("/generate", content=big, headers={"content-type": "application/json"})
+    assert r.status_code == 413 and error_of(r)["code"] == "payload_too_large"
+    assert llm.calls == []
+
+
+def test_oversized_streamed_body_without_content_length_is_rejected_too(api):
+    chunks = (b"x" * 100_000 for _ in range(12))  # chunked: заголовка Content-Length нет
+    r = api().post("/generate", content=chunks, headers={"content-type": "application/json"})
+    assert r.status_code == 413 and error_of(r)["code"] == "payload_too_large"
+
+
+def test_normal_sized_body_still_passes(api):
+    assert api().post("/generate", json=PDF_PRODUCT).status_code == 200
+
+
+def test_unknown_routes_use_the_same_error_envelope(api):
+    r = api().get("/нет-такого-маршрута")
+    assert r.status_code == 404 and error_of(r)["code"] == "not_found"

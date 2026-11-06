@@ -75,3 +75,23 @@ def test_oversized_payloads_are_rejected():
         make(description="х" * 20_001)
     with pytest.raises(ValidationError):
         make(specs={f"п{i}": "1" for i in range(101)})
+
+
+def test_spec_names_are_capped():
+    make(specs={"н" * 200: "значение"})  # граница допустима
+    with pytest.raises(ValidationError):
+        make(specs={"н" * 201: "значение"})
+
+
+def test_spec_values_are_capped_at_1000():
+    make(specs={"п": "з" * 1000})
+    with pytest.raises(ValidationError):
+        make(specs={"п": "з" * 1001})
+
+
+def test_unknown_fields_are_capped_in_number_and_name_length():
+    make(**{f"поле{i}": "x" for i in range(20)})
+    with pytest.raises(ValidationError):
+        make(**{f"поле{i}": "x" for i in range(21)})
+    with pytest.raises(ValidationError):
+        make(**{"п" * 101: "x"})

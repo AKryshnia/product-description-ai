@@ -3,13 +3,16 @@
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 NO_DATA = "данных нет"  # единая пометка для отсутствующих значений
 
 MAX_SPECS = 100
 MAX_NAME = 300
-MAX_SPEC_VALUE = 2_000
+MAX_SPEC_KEY = 200
+MAX_SPEC_VALUE = 1_000
+MAX_EXTRA_FIELDS = 20  # неизвестные поля (extra="allow"): число и длина имени
+MAX_EXTRA_NAME = 100
 MAX_DESCRIPTION = 20_000
 
 _EXAMPLE_INPUT = {
@@ -45,6 +48,17 @@ class ProductInput(BaseModel):
         default=None, max_length=MAX_DESCRIPTION, description="Текст или фрагмент паспорта."
     )
 
+    @model_validator(mode="after")
+    def _limit_unknown_fields(self) -> "ProductInput":
+        # Имена неизвестных полей возвращаются в ответе, а значения хранятся в памяти: ограничиваем.
+        extra = self.model_extra or {}
+        if len(extra) > MAX_EXTRA_FIELDS or any(len(name) > MAX_EXTRA_NAME for name in extra):
+            raise ValueError(
+                f"слишком много или слишком длинные неизвестные поля "
+                f"(максимум {MAX_EXTRA_FIELDS} полей, имя до {MAX_EXTRA_NAME} символов)"
+            )
+        return self
+
     @field_validator("name")
     @classmethod
     def _name_not_blank(cls, v: str) -> str:
@@ -72,6 +86,8 @@ class ProductInput(BaseModel):
         for key, value in v.items():
             if not key.strip():
                 raise ValueError("название характеристики не может быть пустым")
+            if len(key) > MAX_SPEC_KEY:
+                raise ValueError(f"название характеристики «{key[:40]}…» длиннее {MAX_SPEC_KEY}")
             text = "" if value is None else str(value)  # числа JSON -> текст; None -> пусто
             if len(text) > MAX_SPEC_VALUE:
                 raise ValueError(f"значение характеристики «{key[:40]}» длиннее {MAX_SPEC_VALUE}")

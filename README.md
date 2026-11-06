@@ -131,6 +131,10 @@ curl -s -X POST 'localhost:8000/generate?format=markdown' -H 'content-type: appl
 }
 ```
 
+**Лимиты входа** (защита от чрезмерного расхода токенов): название и производитель — до 300 символов;
+имя характеристики — до 200, значение — до 1000, не более 100 характеристик; описание — до 20 000;
+не более 20 неизвестных полей (имя до 100 символов); тело запроса — до 1 МБ (иначе `413`).
+
 ## Пример ответа
 
 Реальный ответ GigaChat (`examples/outputs/gigachat-live/01-manometer-dm02-from-task.result.json`,
@@ -171,6 +175,7 @@ curl -s -X POST 'localhost:8000/generate?format=markdown' -H 'content-type: appl
 |---|---|---|
 | 200 | — | Карточка сформирована (любой `status`, в т. ч. `partial`) |
 | 400 | `invalid_json` | Тело запроса — не JSON |
+| 413 | `payload_too_large` | Тело запроса больше 1 МБ |
 | 422 | `invalid_input` | Неверные типы, пустое `name`, слишком большие данные; в `details` — поля без значений |
 | 429 | `llm_rate_limited` | Лимит запросов провайдера (есть `Retry-After`, если сообщил провайдер) |
 | 501 | `llm_unsupported_capability` | Адаптер не поддерживает запрошенную возможность |
@@ -269,7 +274,7 @@ curl -s -X POST 'localhost:8000/generate?format=markdown' -H 'content-type: appl
 ## Тесты
 
 ```bash
-pytest                         # 262 теста, GigaChat подменяется; расходует 0 токенов
+pytest                         # 269 тестов, GigaChat подменяется; расходует 0 токенов
 ruff check . && ruff format --check .
 python scripts/live_check.py   # РЕАЛЬНЫЙ GigaChat: нужен ключ, тратит токены (≈ 8 вызовов)
 ```
