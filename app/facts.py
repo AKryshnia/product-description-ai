@@ -54,6 +54,7 @@ _UNIT_VARIANTS: dict[str, list[str]] = {
     "об/мин": ["об/мин", "rpm"],
 }
 _CANON = {v: canon for canon, variants in _UNIT_VARIANTS.items() for v in variants}
+UNIT_SPELLINGS = frozenset(_CANON)  # «kPa», «mm» и т. п. — это единицы, а не посторонние слова
 
 _LETTER = "A-Za-zА-Яа-яЁё"
 _NUM = r"\d+(?:[.,]\d+)?"
@@ -115,6 +116,8 @@ class Chain(NamedTuple):
     raw: str  # исходный фрагмент цепочки (без единицы)
     fragment: str  # фрагмент вместе с единицей — для сообщений
     before: str  # символ перед цепочкой ("" в начале текста)
+    start: int = 0  # позиции фрагмента (с единицей) в нормализованном тексте
+    end: int = 0
 
 
 def norm_number(s: str) -> str:
@@ -142,8 +145,23 @@ def chains(text: str) -> list[Chain]:
                 m.group("chain"),
                 m.group(0).strip(),
                 before,
+                m.start(),
+                m.end(),
             )
         )
+    return found
+
+
+def conditions(text: str) -> list[tuple[tuple[str, ...], str, str]]:
+    """Значения с единицей, за которыми в скобках стоит условие: «до плюс 60 °С (в металлическом
+    корпусе)» -> (('60',), '°C', 'в металлическом корпусе'). Обозначения без единицы («L3 (…)»)
+    не в счёт: скобки там — определение, а не условие."""
+    norm = normalize_text(text)
+    found = []
+    for ch in chains(norm):
+        tail = re.match(r"\s*\(([^()]{3,80})\)", norm[ch.end :])
+        if ch.unit and tail:
+            found.append((tuple(ch.numbers), ch.unit, tail.group(1).strip()))
     return found
 
 

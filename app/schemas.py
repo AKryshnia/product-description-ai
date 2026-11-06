@@ -124,6 +124,8 @@ class IssueCode(StrEnum):
     UNVERIFIED_UNIT = "unverified_unit"
     UNVERIFIED_DESIGNATION = "unverified_designation"
     UNIT_PAIR_UNCONFIRMED = "unit_pair_unconfirmed"
+    CONDITION_DROPPED = "condition_dropped"
+    TEXT_GLITCH = "text_glitch"
     UNSUPPORTED_CLAIM = "unsupported_claim"
     BLOCK_WITHHELD = "block_withheld"
     REPAIR_FAILED = "repair_failed"

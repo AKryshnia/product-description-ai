@@ -12,7 +12,14 @@
 import re
 from dataclasses import dataclass
 
-from app.facts import chains, drop_instruction_sentences, standalone_units
+from app.facts import (
+    UNIT_SPELLINGS,
+    chains,
+    conditions,
+    drop_instruction_sentences,
+    normalize_text,
+    standalone_units,
+)
 from app.schemas import Draft, Issue, IssueCode, ProductInput, Severity
 
 TITLE_MAX = 70
@@ -127,8 +134,9 @@ def _squash(text: str) -> str:
 
 # обозначение модели/типа: буквы + цифра(ы), например «DM02», «RS-485», «G1/2», «IP65»
 _DESIGNATION = re.compile(r"(?<!\w)[A-Za-zА-Яа-яЁё]{1,8}-?\d[\w./-]*")
-# слова латиницей (от 4 букв): названия, протоколы, бренды — должны встречаться во входных данных
-_LATIN_WORD = re.compile(r"(?<![\w])[A-Za-z]{4,}(?![\w])")
+# слова латиницей (от 3 букв; единицы вроде kPa не в счёт): названия, протоколы, бренды —
+# должны встречаться во входных данных
+_LATIN_WORD = re.compile(r"(?<![\w])[A-Za-z]{3,}(?![\w])")
 
 
 @dataclass(frozen=True)
@@ -142,6 +150,8 @@ class Facts:
     text: str  # корпус входного текста в нижнем регистре
     squashed: str  # он же без пробелов и дефисов — для сравнения обозначений
     name_stems: tuple[str, ...]  # основы слов названия — для проверки заголовка
+    # (числа, единица) -> (основы слов условия, текст условия): значения с условием в скобках
+    conditions: dict | None = None
 
 
 def build_facts(product: ProductInput) -> Facts:
@@ -170,7 +180,18 @@ def build_facts(product: ProductInput) -> Facts:
         _fold(corpus),
         _squash(corpus),
         stems,
+        _condition_map(product),
     )
+
+
+def _condition_map(product: ProductInput) -> dict:
+    found: dict[tuple, tuple[set, list]] = {}
+    for value in (product.specs or {}).values():
+        for numbers, unit, text in conditions(value):
+            stems, texts = found.setdefault((numbers, unit), (set(), []))
+            stems.update(w[:5] for w in re.findall(r"[а-яё]{5,}", _fold(text)))
+            texts.append(text)
+    return {k: (frozenset(stems), "; ".join(texts)) for k, (stems, texts) in found.items()}
 
 
 def _issue(code, severity, field, message, detail=None) -> Issue:
@@ -201,6 +222,8 @@ def check_text(text: str, block: str, facts: Facts) -> list[Issue]:
     return (
         _check_numbers(text, block, facts)
         + _check_designations(text, block, facts)
+        + _check_conditions(text, block, facts)
+        + _check_glitches(text, block)
         + _check_claims(text, block, facts)
     )
 
@@ -264,6 +287,52 @@ def _check_numbers(text: str, block: str, facts: Facts) -> list[Issue]:
     return found
 
 
+_REPEAT = re.compile(r"(?<!\S)(\S{1,15})[ \t]+\1(?!\S)", re.IGNORECASE)
+
+
+def _check_glitches(text: str, block: str) -> list[Issue]:
+    """Подряд идущие одинаковые токены («% %», «для для») — типичный сбой генерации."""
+    return [
+        _issue(
+            IssueCode.TEXT_GLITCH,
+            Severity.REVIEW,
+            block,
+            f"В тексте подряд повторяется «{m.group(0)}» — похоже на сбой генерации. Исправьте.",
+            m.group(0),
+        )
+        for m in _REPEAT.finditer(text)
+    ]
+
+
+def _check_conditions(text: str, block: str, facts: Facts) -> list[Issue]:
+    """Значение, которое во входе дано с условием, не должно терять его: рядом (±100 символов)
+    должно быть слово из условия. Иначе значение могло быть обобщено на все варианты."""
+    if not facts.conditions:
+        return []
+    norm = normalize_text(text)
+    folded = _fold(norm)
+    found = []
+    for ch in chains(norm):
+        entry = facts.conditions.get((tuple(ch.numbers), ch.unit)) if ch.unit else None
+        if not entry:
+            continue
+        stems, condition = entry
+        window = folded[max(0, ch.start - 100) : ch.end + 100]
+        if stems and not any(s in window for s in stems):
+            found.append(
+                _issue(
+                    IssueCode.CONDITION_DROPPED,
+                    Severity.REVIEW,
+                    block,
+                    f"Во входных данных значение дано с условием «{condition}», а в тексте условие "
+                    "рядом не указано: значение могло быть обобщено на все варианты. "
+                    "Проверьте вручную.",
+                    ch.fragment,
+                )
+            )
+    return found
+
+
 def _check_designations(text: str, block: str, facts: Facts) -> list[Issue]:
     """Обозначения должны совпадать с входными (модель не должна транслитерировать ДЕМО -> DEMO).
     Пробелы и дефисы не различаются: «RS485» и «RS-485» — одна запись."""
@@ -275,6 +344,7 @@ def _check_designations(text: str, block: str, facts: Facts) -> list[Issue]:
         m
         for m in _LATIN_WORD.finditer(text)
         if not any(a <= m.start() and m.end() <= b for a, b in covered)
+        and m.group(0) not in UNIT_SPELLINGS
     ]
     for m in (*designations, *words):
         token = m.group(0).rstrip(".,/-")

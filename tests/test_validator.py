@@ -233,3 +233,56 @@ def test_a_word_in_one_context_does_not_justify_the_same_stem_in_another():
 def test_invented_monitoring_task_is_flagged():
     issues = check_text("Мониторинг состояния оборудования", "commercial", _catalog_facts())
     assert IssueCode.UNSUPPORTED_CLAIM in codes(issues, Severity.REVIEW)
+
+
+def test_latin_unit_spellings_are_not_mistaken_for_foreign_words():
+    src = ProductInput.model_validate({"name": "Датчик", "specs": {"диапазон": "0–100 kPa"}})
+    assert check_text("Диапазон до 100 kPa", "seo_description", build_facts(src)) == []
+
+
+def test_value_with_a_condition_must_keep_the_condition_next_to_it():
+    """Реальный случай (МП3-У): «от минус 50 до плюс 60 °С» верно только для металлического корпуса;
+    модель выдала диапазон без условия, и все числа при этом были из источника."""
+    f = _catalog_facts()
+    dropped = check_text(
+        "Температура окружающей среды от минус 50 до плюс 60 °С.", "seo_description", f
+    )
+    flagged = [i for i in dropped if i.code is IssueCode.CONDITION_DROPPED]
+    assert len(flagged) == 1 and flagged[0].severity is Severity.REVIEW
+    assert flagged[0].detail == "60 °С"
+
+    kept = check_text(
+        "Температура окружающей среды от минус 50 до плюс 60 °С (металлический корпус), "
+        "от минус 30 до плюс 60 °С (корпус из полистирола).",
+        "seo_description",
+        f,
+    )
+    assert IssueCode.CONDITION_DROPPED not in codes(kept)
+
+
+def test_condition_check_follows_each_value_and_ignores_unitless_designations():
+    f = _catalog_facts()
+    ok = check_text(
+        "возможна работа до +150 °С с охладительными устройствами", "seo_description", f
+    )
+    assert IssueCode.CONDITION_DROPPED not in codes(ok)
+    bad = check_text("допускается среда с температурой до плюс 150 °С", "seo_description", f)
+    assert IssueCode.CONDITION_DROPPED in codes(bad)
+    # «L3 (…)» — обозначение без единицы: сокращённая запись условием не считается
+    assert IssueCode.CONDITION_DROPPED not in codes(
+        check_text("Виброзащита L3", "seo_description", f)
+    )
+
+
+def test_immediately_repeated_tokens_are_flagged_as_generation_glitches(facts):
+    """Реальный случай (testo 608-H1): «разрешение 0,1 % %» — задвоенный знак в готовом тексте."""
+
+    def glitches(text):
+        return [
+            i for i in check_text(text, "seo_description", facts) if i.code is IssueCode.TEXT_GLITCH
+        ]
+
+    (issue,) = glitches("погрешность ±3 %, разрешение 0,1 % %")
+    assert issue.severity is Severity.REVIEW and issue.detail == "% %"
+    assert [i.detail for i in glitches("прибор для для измерения")] == ["для для"]
+    assert glitches("Применяется и в помещениях, и в складах") == []  # запятая — не повтор
