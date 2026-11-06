@@ -274,7 +274,7 @@ curl -s -X POST 'localhost:8000/generate?format=markdown' -H 'content-type: appl
 ## Тесты
 
 ```bash
-pytest                         # 269 тестов, GigaChat подменяется; расходует 0 токенов
+pytest                         # 271 тест, GigaChat подменяется; расходует 0 токенов
 ruff check . && ruff format --check .
 python scripts/live_check.py   # РЕАЛЬНЫЙ GigaChat: нужен ключ, тратит токены (≈ 8 вызовов)
 ```
