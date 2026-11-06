@@ -125,6 +125,9 @@ class IssueCode(StrEnum):
     UNVERIFIED_DESIGNATION = "unverified_designation"
     UNIT_PAIR_UNCONFIRMED = "unit_pair_unconfirmed"
     CONDITION_DROPPED = "condition_dropped"
+    VALUE_CONTEXT_MISMATCH = "value_context_mismatch"
+    NARRATIVE_ONLY_VALUE = "narrative_only_value"
+    COMMERCIAL_EMPTY = "commercial_empty"
     TEXT_GLITCH = "text_glitch"
     UNSUPPORTED_CLAIM = "unsupported_claim"
     BLOCK_WITHHELD = "block_withheld"
@@ -188,21 +191,40 @@ class Draft(BaseModel):
 
 
 class CardStatus(StrEnum):
-    OK = "ok"  # все проверки пройдены
-    NEEDS_REVIEW = "needs_review"  # есть пункты для ручной проверки
-    PARTIAL = "partial"  # часть результата не сформирована или нарушает ограничения
+    """Итог АВТОМАТИЧЕСКОЙ проверки. Ни одно значение не означает, что текст достоверен:
+    ручная проверка перед публикацией нужна всегда."""
+
+    OK = "ok"  # проверки не нашли замечаний (это не подтверждение достоверности текста)
+    NEEDS_REVIEW = "needs_review"  # есть пункты, которые программа не смогла подтвердить
+    PARTIAL = "partial"  # есть нарушения или часть результата не сформирована
 
 
 class GenerationInfo(BaseModel):
     model: str | None = None
-    llm_calls: int = 0
+    llm_calls: int = Field(
+        default=0,
+        description=(
+            "Сколько раз приложение обратилось к модели (0–2), включая неудавшуюся корректировку. "
+            "HTTP-повторы SDK и обновление токена сюда не входят."
+        ),
+    )
     repaired: bool = Field(default=False, description="Использована ли доп. генерация.")
-    prompt_tokens: int | None = None
+    prompt_tokens: int | None = Field(
+        default=None,
+        description="Сумма по полученным ответам; расход неудавшихся вызовов неизвестен.",
+    )
     completion_tokens: int | None = None
 
 
 class ProductCard(BaseModel):
-    status: CardStatus
+    status: CardStatus = Field(
+        description=(
+            "Итог автоматической проверки: ok — замечаний не найдено (это НЕ подтверждение "
+            "достоверности, перед публикацией текст проверяют вручную); needs_review — есть "
+            "пункты, которые программа не смогла подтвердить; partial — есть нарушения или "
+            "часть результата не сформирована."
+        )
+    )
     name: str
     manufacturer: str | None
     seo_title: str | None

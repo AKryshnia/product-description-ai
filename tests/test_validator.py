@@ -249,7 +249,7 @@ def test_value_with_a_condition_must_keep_the_condition_next_to_it():
     )
     flagged = [i for i in dropped if i.code is IssueCode.CONDITION_DROPPED]
     assert len(flagged) == 1 and flagged[0].severity is Severity.REVIEW
-    assert flagged[0].detail == "60 °С"
+    assert flagged[0].detail == "минус 50 до плюс 60 °С"
 
     kept = check_text(
         "Температура окружающей среды от минус 50 до плюс 60 °С (металлический корпус), "
@@ -286,3 +286,30 @@ def test_immediately_repeated_tokens_are_flagged_as_generation_glitches(facts):
     assert issue.severity is Severity.REVIEW and issue.detail == "% %"
     assert [i.detail for i in glitches("прибор для для измерения")] == ["для для"]
     assert glitches("Применяется и в помещениях, и в складах") == []  # запятая — не повтор
+
+
+def test_the_word_various_is_not_a_claim_but_generalised_conditions_are(facts):
+    """«Различных помещениях: музеях, …» — перечень из источника; «различных условиях
+    эксплуатации» — обобщение, которого во входе нет."""
+    listed = ProductInput.model_validate(
+        {"name": "Термогигрометр", "description": "Применяют в помещениях: музеях, библиотеках."}
+    )
+    f = build_facts(listed)
+    assert (
+        check_text("Применяют в различных помещениях: музеях, библиотеках.", "commercial", f) == []
+    )
+    for text in (
+        "Работает в различных условиях эксплуатации.",
+        "Подходит для различных отраслей.",
+        "Пригоден для различных режимов работы.",
+    ):
+        flagged = [i for i in check_text(text, "commercial", f) if i.severity is Severity.REVIEW]
+        assert [i.code for i in flagged] == [IssueCode.UNSUPPORTED_CLAIM], text
+    # если источник сам так говорит — использовать можно
+    said = ProductInput.model_validate(
+        {"name": "Датчик", "description": "Рассчитан на различные условия эксплуатации."}
+    )
+    assert (
+        check_text("Работает в различных условиях эксплуатации.", "commercial", build_facts(said))
+        == []
+    )

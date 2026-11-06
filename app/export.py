@@ -4,8 +4,14 @@ from app.schemas import CardStatus, Issue, ProductCard
 from app.validator import DESCRIPTION_MAX, DESCRIPTION_MIN, TITLE_MAX
 
 _STATUS_TEXT = {
-    CardStatus.OK: "черновик готов к редактированию",
-    CardStatus.NEEDS_REVIEW: "черновик, требуется ручная проверка (см. «Замечания» ниже)",
+    CardStatus.OK: (
+        "черновик: автоматическая проверка замечаний не нашла, но это не подтверждение "
+        "достоверности, перед публикацией текст нужно проверить вручную"
+    ),
+    CardStatus.NEEDS_REVIEW: (
+        "требуется ручная проверка: часть утверждений программа не смогла подтвердить "
+        "(см. «Замечания» ниже)"
+    ),
     CardStatus.PARTIAL: (
         "частичный результат: часть блоков не сформирована или нарушает ограничения "
         "(см. «Замечания» ниже)"
@@ -80,5 +86,9 @@ def to_markdown(card: ProductCard) -> str:
         ]
 
     out += ["", "## Недостающие сведения", *_issues(card.missing_info, "Недостающих сведений нет.")]
-    out += ["", "## Замечания проверки", *_issues(card.warnings, "Замечаний нет.")]
+    out += [
+        "",
+        "## Замечания проверки",
+        *_issues(card.warnings, "Замечаний автоматической проверки нет."),
+    ]
     return "\n".join(out) + "\n"

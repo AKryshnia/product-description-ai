@@ -183,3 +183,62 @@ def test_a_repair_that_moves_further_from_the_range_is_discarded():
     far = draft_json(seo_description=GOOD_DESCRIPTION[:300])
     card = generate_card(product(), FakeLLM([near, far]))
     assert card.seo_description == GOOD_DESCRIPTION[:700] and not card.generation.repaired
+
+
+# ---------------------------------------------------------------- коммерческий блок
+
+
+EMPTY_COMMERCIAL = {"audience": [], "tasks": [], "scenarios": []}
+
+
+@pytest.mark.parametrize(
+    "commercial",
+    [
+        EMPTY_COMMERCIAL,
+        {"audience": ["Специалисты по давлению"], "tasks": [], "scenarios": []},
+        {"audience": [], "tasks": ["Измерение избыточного давления"], "scenarios": []},
+        {"audience": ["  ", "\n\t"], "tasks": [" "], "scenarios": []},  # пробельные строки
+        {"audience": ["—"], "tasks": ["данных нет"], "scenarios": []},  # заглушки вместо смысла
+    ],
+)
+def test_empty_audience_or_tasks_is_repaired_with_the_single_extra_call(commercial):
+    llm = FakeLLM([draft_json(commercial=commercial), draft_json()])
+    card = generate_card(product(), llm)
+    assert card.status is CardStatus.OK and card.generation.repaired
+    assert len(llm.calls) == 2 and card.generation.llm_calls == 2
+    feedback = llm.calls[1][-1]["content"]
+    assert "commercial" in feedback and "не выдумывай" in feedback.lower()
+
+
+def test_unfixable_empty_commercial_gives_a_partial_card_with_the_reason():
+    card = generate_card(product(), FakeLLM([draft_json(commercial=EMPTY_COMMERCIAL)]))
+    assert card.status is CardStatus.PARTIAL
+    (issue,) = [w for w in card.warnings if w.code is IssueCode.COMMERCIAL_EMPTY]
+    assert issue.severity is Severity.ERROR and issue.field == "commercial"
+    assert "аудитор" in issue.message and "задач" in issue.message
+    # блок не заполняется выдуманными данными, остальное сохранено
+    assert card.commercial is not None and card.commercial.audience == []
+    assert card.seo_title and card.seo_description and "—" in card.markdown
+
+
+def test_empty_scenarios_are_allowed_when_none_are_confirmed():
+    card = generate_card(product(), FakeLLM([draft_json()]))  # scenarios: [] в образце
+    assert card.status is CardStatus.OK and card.commercial.scenarios == []
+
+
+# ---------------------------------------------------------------- счётчик обращений к модели
+
+
+def test_failed_repair_call_is_counted_as_a_logical_call():
+    bad = draft_json(seo_title="м" * 90)
+    llm = FakeLLM([bad, LLMTimeout()])
+    card = generate_card(product(), llm)
+    assert len(llm.calls) == 2 and card.generation.llm_calls == 2
+    assert card.generation.prompt_tokens == 10  # токены — только по полученному ответу
+    assert not card.generation.repaired
+
+
+def test_unparseable_repair_reply_is_counted_too():
+    llm = FakeLLM([draft_json(seo_title="м" * 90), "не JSON"])
+    card = generate_card(product(), llm)
+    assert card.generation.llm_calls == len(llm.calls) == 2

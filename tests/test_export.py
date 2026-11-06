@@ -94,6 +94,9 @@ def test_withheld_blocks_are_flagged_not_silently_dropped():
 
 def test_status_line_tells_the_editor_what_to_do():
     assert "ручная проверка" in to_markdown(card(status=CardStatus.NEEDS_REVIEW)).lower()
+    # даже без замечаний статус не выдаётся за подтверждение достоверности
+    ok = to_markdown(card(status=CardStatus.OK))
+    assert "не подтверждение достоверности" in ok and "вручную" in ok
     assert "черновик" in to_markdown(card()).lower()
 
 

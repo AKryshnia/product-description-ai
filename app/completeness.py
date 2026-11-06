@@ -8,7 +8,7 @@
 import re
 from dataclasses import dataclass
 
-from app.facts import INJECTION, chains
+from app.facts import chains, find_instruction
 from app.schemas import Issue, IssueCode, ProductInput, Severity
 
 # между названием характеристики и числом в описании допускаем только «служебные» слова
@@ -188,8 +188,8 @@ def _suspicious_text(product: ProductInput, specs: dict[str, str]) -> list[Issue
     texts |= {f"specs.{k}": v for k, v in specs.items()}
     found = []
     for field, text in texts.items():
-        m = INJECTION.search(text or "")
-        if m:
+        fragment = find_instruction(text or "")
+        if fragment:
             found.append(
                 _issue(
                     IssueCode.MANUAL_CHECK,
@@ -197,7 +197,7 @@ def _suspicious_text(product: ProductInput, specs: dict[str, str]) -> list[Issue
                     field,
                     "В тексте обнаружен фрагмент, похожий на инструкцию для ИИ. Он рассматривается "
                     "как данные и не выполняется; проверьте исходный текст.",
-                    detail=m.group(0),
+                    detail=fragment,
                 )
             )
     return found

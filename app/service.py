@@ -57,8 +57,17 @@ class _Attempt:
         return (self.draft is None, errors, reviews, gap)
 
 
-def _attempt(llm: LLMClient, messages: list, facts: Facts) -> _Attempt:
+@dataclass
+class _Tally:
+    """Логические обращения приложения к модели. Считаются при отправке, а не при получении
+    ответа: вызов, закончившийся ошибкой или тайм-аутом, тоже был сделан."""
+
+    calls: int = 0
+
+
+def _attempt(llm: LLMClient, messages: list, facts: Facts, tally: _Tally) -> _Attempt:
     schema = draft_json_schema() if llm.capabilities.json_schema else None
+    tally.calls += 1
     result = llm.complete(messages, json_schema=schema)
     try:
         draft = parse_draft(result.text)
@@ -106,13 +115,14 @@ def generate_card(product: ProductInput, llm: LLMClient) -> ProductCard:
 
     facts = build_facts(product)
     messages = build_messages(product)
-    first = _attempt(llm, messages, facts)
+    tally = _Tally()
+    first = _attempt(llm, messages, facts, tally)
     final, attempts, extra = first, [first], []
 
     if first.issues:  # одна, и только одна, корректирующая генерация
         try:
             second = _attempt(
-                llm, repair_messages(messages, first.result.text, first.issues), facts
+                llm, repair_messages(messages, first.result.text, first.issues), facts, tally
             )
         except LLMError as e:
             if first.draft is None:
@@ -170,7 +180,7 @@ def generate_card(product: ProductInput, llm: LLMClient) -> ProductCard:
         warnings=issues,
         generation=GenerationInfo(
             model=final.result.model,
-            llm_calls=len(attempts),
+            llm_calls=tally.calls,
             repaired=final is not first,
             prompt_tokens=_sum([a.result.prompt_tokens for a in attempts]),
             completion_tokens=_sum([a.result.completion_tokens for a in attempts]),
@@ -178,7 +188,7 @@ def generate_card(product: ProductInput, llm: LLMClient) -> ProductCard:
         **shared,
     )
     log.info(
-        "card status=%s calls=%d repaired=%s", card.status.value, len(attempts), final is not first
+        "card status=%s calls=%d repaired=%s", card.status.value, tally.calls, final is not first
     )
     return _finish(card)
 
