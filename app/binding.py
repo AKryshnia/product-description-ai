@@ -7,10 +7,13 @@
 
  * УСЛОВИЕ — если у значения во входе есть условие («(в металлическом корпусе)», «при +23 °C и
    влажности 50 %»), в тексте должно быть названо КАЖДОЕ ограничение условия, а не любое одно;
-   среди вариантов одной характеристики сравниваются только отличительные слова условия;
- * ОПЦИЯ — значение из списка вариантов или из опций («опции по заказу») нельзя выдать за
-   основное: в тексте должно быть название списка. Опцией характеристику делает её название или
-   число вариантов от трёх, а не одно только число пунктов;
+   среди вариантов одной характеристики ограничение подтверждают его отличительные слова, а
+   ограничение, общее для всех вариантов, остаётся обязательным целиком;
+ * ОПЦИЯ — значение из опций или вариантов («опции по заказу», «опциональная степень защиты»)
+   нельзя выдать за основное. Если опцией его делает пометка в названии характеристики, в тексте
+   должна быть пометка опции («опционально», «по заказу»): слова о самом параметре её не
+   заменяют. Если пометки нет и опцией его делает число вариантов (от трёх), достаточно названия
+   перечня;
  * ГРАНИЦА — «не более 0,8 кг» и «не менее 0,8 кг» — разные утверждения; граница значения
    («не более», «не менее», «менее», «более», «до», «от») должна сохраниться;
  * СОСЕДИ — если соседние слова описывают другую характеристику с другим значением («рабочая
@@ -47,10 +50,13 @@ _AND = re.compile(r"\s+и\s+|;\s*|,\s+")
 # вариантов от трёх через «;» — перечень. Два варианта одной величины («в металлическом корпусе» /
 # «в корпусе из полистирола») различает условие, а не название.
 LIST_MIN = 3
-# название характеристики говорит, что значение — вариант или опция, сколько бы пунктов ни было
+# пометка в названии характеристики: значение — вариант или опция, сколько бы пунктов ни было
 _OPTION_KEY = re.compile(r"опци|по заказу|под заказ|дополнительн|вариант")
-# основы слов, которыми сам текст называет значение вариантом или опцией («опционально»)
-_OPTION_STEMS = frozenset({"опции", "опция", "опцио", "допол", "вариа"})
+# та же пометка в тексте — начала основ: «опционально», «в опциях», «по заказу», «дополнительно»
+_OPTION_WORDS = ("опци", "заказ", "допол", "вариа")
+# почему значение — опция: "marked" — пометка в названии характеристики; "listed" — вариантов
+# от трёх, пометки нет; "" — основное значение
+Option = Literal["", "marked", "listed"]
 
 # граница перед числом: порядок важен («не более» раньше «более»)
 _BOUNDS = (
@@ -126,7 +132,8 @@ def scan(norm: str) -> list[Found]:
 class Token:
     found: Found
     qualifier: str = ""  # текст условия: «в металлическом корпусе», «при +25 °C»
-    # отличительные основы и числа каждого ограничения условия (см. _need и _distinguish)
+    # по набору на каждое обязательное ограничение условия: его отличительные основы и числа, а у
+    # общего для всех вариантов ограничения — все (см. _need и _distinguish)
     need: tuple[frozenset[str], ...] = ()
 
 
@@ -141,7 +148,7 @@ class Place:
     marks: frozenset[str]  # основы слов названия характеристики и фрагмента: «о чём речь»
     key_marks: frozenset[str]  # основы слов названия характеристики
     words: frozenset[str]  # основы слов самого фрагмента (без названия)
-    optional: bool  # значение — вариант или опция, а не основная характеристика
+    optional: Option  # значение — вариант или опция, а не основная характеристика (см. Option)
     tokens: tuple[Token, ...] = ()
 
 
@@ -172,7 +179,7 @@ def _need(qualifier: str) -> tuple[frozenset[str], ...]:
     return tuple(n for n in needs if n)
 
 
-def _place(key: str, part: str, *, trusted: bool, optional: bool = False) -> Place:
+def _place(key: str, part: str, *, trusted: bool, optional: Option = "") -> Place:
     norm_part = normalize_text(part)
     found = scan(norm_part)
     cond = _qualifier(norm_part, found) if trusted else {}
@@ -206,7 +213,8 @@ def build_places(product, description: str) -> tuple[Place, ...]:
     for key, value in (product.specs or {}).items():
         value = drop_instruction_sentences(value)  # команда не подтверждает свои значения
         parts = [p.strip() for p in re.split(r"[;\n]", value) if p.strip()]
-        optional = len(parts) >= LIST_MIN or bool(_OPTION_KEY.search(fold(key)))
+        marked = _OPTION_KEY.search(fold(key))
+        optional: Option = "marked" if marked else "listed" if len(parts) >= LIST_MIN else ""
         group = [_place(key, p, trusted=True, optional=optional) for p in parts]
         places += _distinguish(group)
     for a, b in sentence_spans(description):
@@ -215,8 +223,11 @@ def build_places(product, description: str) -> tuple[Place, ...]:
 
 
 def _distinguish(group: list[Place]) -> list[Place]:
-    """Среди вариантов одной характеристики у значения отличительны только те слова условия,
-    которых нет у других вариантов («металл», а не общее «корпус»)."""
+    """Обязательные ограничения условия остаются все; меняется только то, чем каждое из них
+    подтверждается в тексте. Среди вариантов одной характеристики ограничение подтверждают его
+    отличительные слова, которых нет у других вариантов («металл», а не общее «корпус»).
+    Ограничение, общее для всех вариантов («влажности 65 %» и при +18 °C, и при +28 °C), варианты
+    не различает, но обязательно — оно сверяется целиком."""
     out = []
     for place in group:
         others = [t for p in group if p is not place for t in p.tokens if t.need]
@@ -225,8 +236,7 @@ def _distinguish(group: list[Place]) -> list[Place]:
             rest = set().union(
                 *(a for o in others if o.found.numbers != t.found.numbers for a in o.need)
             )
-            kept = tuple(a - rest for a in t.need if a - rest)
-            tokens.append(replace(t, need=kept or t.need))
+            tokens.append(replace(t, need=tuple((a - rest) or a for a in t.need)))
         out.append(replace(place, tokens=tuple(tokens)))
     return out
 
@@ -446,13 +456,17 @@ def _condition_dropped(f: Found, ctx: Context, token: Token, field: str) -> Issu
 
 
 def _option_as_basic(f: Found, ctx: Context, place: Place, field: str) -> Issue | None:
-    if not (place.optional and place.key_marks) or ctx.sentence & (place.key_marks | _OPTION_STEMS):
+    """Пометка опции сверяется отдельно от слов о самом параметре: «степень защиты» в тексте не
+    говорит, что степень защиты — опция. У перечня без пометки признак — его название."""
+    if not place.optional or any(w.startswith(_OPTION_WORDS) for w in ctx.sentence):
+        return None
+    if place.optional == "listed" and (not place.key_marks or ctx.sentence & place.key_marks):
         return None
     return _issue(
         IssueCode.CONDITION_DROPPED,
         field,
-        f"Значение взято из списка вариантов или опций «{place.label}», а название списка в "
-        "тексте не указано: вариант (опцию, исполнение) могли выдать за основную характеристику. "
-        "Проверьте вручную.",
+        f"Значение взято из опций или вариантов «{place.label}», а в тексте не сказано, что это "
+        "опция или вариант («опционально», «по заказу»): вариант (опцию, исполнение) могли выдать "
+        "за основную характеристику. Проверьте вручную.",
         f.fragment,
     )

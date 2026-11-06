@@ -28,6 +28,15 @@ OPTION_AMONG_BASE = {
 }
 NEGATED = {"реле": "не поддерживается"}
 UPPER_BOUND = {"масса": "не более 0,8 кг"}
+# два исполнения с общим ограничением условия: влажность одинакова, различает температура
+SHARED_CONDITION = {
+    "погрешность": "±0,4 °C (при +18 °C и влажности 65 %); ±0,7 °C (при +28 °C и влажности 65 %)"
+}
+# опцию делает пометка в названии; слова «степень защиты» говорят только о самом параметре
+OPTION_IN_NAME = {"питание": "24 В", "выход": "4–20 мА", "опциональная степень защиты": "IP68"}
+BASIC_AND_OPTION = {"степень защиты": "IP54", "опциональная степень защиты": "IP68"}
+# перечень без пометки опции: вариантом значение делает число пунктов, признак — название перечня
+LISTED = {"диапазоны измерений": "0–1 бар; 0–10 бар; 0–100 бар"}
 
 
 def findings(specs: dict, text: str):
@@ -100,6 +109,34 @@ FAITHFUL = [
     ("range_lower_end", {"частота": "от 5 до 25 Гц"}, "Частота — не менее 5 Гц."),
     ("range_upper_end_as_maximum", {"частота": "5…25 Гц"}, "Частота — не более 25 Гц."),
     ("bound_more", {"масса": "более 0,8 кг"}, "Масса — более 0,8 кг."),
+    # общее ограничение нескольких исполнений
+    (
+        "shared_condition_kept",
+        SHARED_CONDITION,
+        "Погрешность ±0,4 °C при +18 °C и влажности 65 %.",
+    ),
+    (
+        "shared_condition_kept_in_other_variant",
+        SHARED_CONDITION,
+        "Погрешность ±0,7 °C при +28 °C и влажности 65 %.",
+    ),
+    (
+        "variants_without_shared_condition",
+        {
+            "погрешность": (
+                "±0,4 °C (при +18 °C и влажности 65 %); ±0,7 °C (при +28 °C и влажности 80 %)"
+            )
+        },
+        "Погрешность ±0,7 °C при +28 °C и влажности 80 %.",
+    ),
+    # пометка опции в названии характеристики
+    ("option_named_optionally", OPTION_IN_NAME, "Опционально доступна степень защиты IP68."),
+    ("option_named_by_order", OPTION_IN_NAME, "Степень защиты IP68 — по заказу."),
+    ("option_named_additionally", OPTION_IN_NAME, "Дополнительно доступна степень защиты IP68."),
+    ("basic_values_beside_option", OPTION_IN_NAME, "Питание — 24 В, выход — 4–20 мА."),
+    ("basic_value_named_like_option", BASIC_AND_OPTION, "Степень защиты — IP54."),
+    ("basic_and_option_together", BASIC_AND_OPTION, "Степень защиты — IP54, по заказу — IP68."),
+    ("listed_value_with_list_name", LISTED, "Один из диапазонов измерений — 0–10 бар."),
 ]
 
 # (описание, характеристики, искажённая формулировка, код замечания)
@@ -157,6 +194,52 @@ DISTORTED = [
         "Частота — от 25 Гц.",
         C.BOUND_MISMATCH,
     ),
+    # общее ограничение нескольких исполнений обязательно, хотя исполнения не различает
+    (
+        "shared_condition_dropped",
+        SHARED_CONDITION,
+        "Погрешность ±0,4 °C при +18 °C.",
+        C.CONDITION_DROPPED,
+    ),
+    (
+        "shared_condition_dropped_in_other_variant",
+        SHARED_CONDITION,
+        "Погрешность ±0,7 °C при +28 °C.",
+        C.CONDITION_DROPPED,
+    ),
+    (
+        "distinct_condition_dropped_shared_kept",
+        SHARED_CONDITION,
+        "Погрешность ±0,4 °C при влажности 65 %.",
+        C.CONDITION_DROPPED,
+    ),
+    (
+        "variant_condition_swapped",
+        SHARED_CONDITION,
+        "Погрешность ±0,4 °C при +28 °C и влажности 65 %.",
+        C.CONDITION_DROPPED,
+    ),
+    # название параметра не заменяет пометку опции
+    ("option_marker_dropped", OPTION_IN_NAME, "Степень защиты — IP68.", C.CONDITION_DROPPED),
+    (
+        "option_given_as_basic_beside_same_basic",
+        BASIC_AND_OPTION,
+        "Степень защиты — IP68.",
+        C.CONDITION_DROPPED,
+    ),
+    (
+        "single_order_option_as_basic",
+        {"степень защиты по заказу": "IP68"},
+        "Степень защиты — IP68.",
+        C.CONDITION_DROPPED,
+    ),
+    (
+        "single_additional_option_as_basic",
+        {"дополнительная степень защиты": "IP68"},
+        "Степень защиты — IP68.",
+        C.CONDITION_DROPPED,
+    ),
+    ("listed_value_without_list_name", LISTED, "Рабочее давление — 0–10 бар.", C.CONDITION_DROPPED),
 ]
 
 
@@ -198,6 +281,8 @@ FULL_CARD_CASES = [
         "ranges_merged",
         "single_option_as_basic",
         "upper_bound_became_lower",
+        "shared_condition_dropped",
+        "option_marker_dropped",
     }
 ]
 
@@ -224,9 +309,7 @@ def test_repair_that_restores_the_relation_gives_ok(case, specs, text, code):
     assert messages and all(m in feedback for m in messages)  # модель получила причину
 
 
-@pytest.mark.parametrize(
-    ("case", "specs", "text"), FAITHFUL[:11], ids=[c[0] for c in FAITHFUL[:11]]
-)
+@pytest.mark.parametrize(("case", "specs", "text"), FAITHFUL, ids=[c[0] for c in FAITHFUL])
 def test_faithful_statement_in_a_full_card_costs_no_repair(case, specs, text):
     card, llm = _card_with(specs, text)
     assert card.status is CardStatus.OK and len(llm.calls) == 1
